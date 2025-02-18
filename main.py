@@ -1,105 +1,134 @@
 import os
 import time
+import asyncio
+from fastapi import FastAPI, WebSocket
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
-
 from helpers.driver import chrome_driver
-
-from providers.provider import Provider
-
-from dotenv import load_dotenv
-
 from providers.nst import NST
 from providers.thestar import TheStar
 from providers.malaymail import MalayMail
+from dotenv import load_dotenv
 
 load_dotenv()
 
-kritik_user = os.getenv('KRITIK_USER')
-kritik_pass = os.getenv('KRITIK_PASS')
+app = FastAPI()
 
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
 
-def main():
+    try:
+        # Receive data from the frontend (e.g., URL, username, password)
+        data = await websocket.receive_json()
+        url = data["url"]
+        kritik_user = data["username"]
+        kritik_pass = data["password"]
 
-    print("Welcome to Kritik Long, Didn't Read(KLDR) developed by @aidilrx04 & @asjadZ")
+        # Send initial processing message
+        await websocket.send_text("Processing started...")
 
-    post = input('Enter post url(valid sites now: nst, thestar, MalayMail): ')
+        # Identify provider based on URL
+        provider = None
+        if url.startswith('https://www.nst.com.my/'):
+            provider = NST(url)
+        elif url.startswith('https://www.thestar.com.my/'):
+            provider = TheStar(url)
+        elif url.startswith('https://www.malaymail.com/'):
+            provider = MalayMail(url)
+        else:
+            await websocket.send_text("Invalid URL")
+            return
 
-    provider: Provider = None
+        # Send scraping message
+        await websocket.send_text("Scraping content...")
+        scraped_data = provider.get_data()
 
-    if (post.startswith('https://www.nst.com.my/')):
-        provider = NST(post)
-    elif post.startswith('https://www.thestar.com.my/'):
-        provider = TheStar(post)
-    elif post.startswith('https://www.malaymail.com/'):
-        provider = MalayMail(post)
-    else:
-        print("Invalid post url")
-        exit(-1)
+        # Set up WebDriver for WordPress login
+        driver = chrome_driver()
 
-    data = provider.get_data()
+        # Send login message and log into WordPress
+        await websocket.send_text("Logging into WordPress...")
+        login(driver, kritik_user, kritik_pass)
 
-    driver = chrome_driver()
+        # Insert scraped data into WordPress
+        await websocket.send_text("Inserting data into WordPress...")
+        insert_data(driver, scraped_data)
 
-    login(driver)
+        # Send completion message
+        await websocket.send_text("Process completed!")
+        # driver.quit()
+        # Keep the browser window open
+        while True:
+            try:
+                data = await websocket.receive_json()
+                url = data["url"]
+                kritik_user = data["username"]
+                kritik_pass = data["password"]
 
-    insert_data(driver, data)
+                await websocket.send_text("Processing started...")
 
-    input()
+                provider = None
+                if url.startswith('https://www.nst.com.my/'):
+                    provider = NST(url)
+                elif url.startswith('https://www.thestar.com.my/'):
+                    provider = TheStar(url)
+                elif url.startswith('https://www.malaymail.com/'):
+                    provider = MalayMail(url)
+                else:
+                    await websocket.send_text("Invalid URL")
+                    continue  # ✅ Loop back for next request
 
-    driver.quit()
+                await websocket.send_text("Scraping content...")
+                scraped_data = provider.get_data()
 
-    pass
+                driver = chrome_driver()
+                await websocket.send_text("Logging into WordPress...")
+                login(driver, kritik_user, kritik_pass)
 
-def login(driver):
+                await websocket.send_text("Inserting data into WordPress...")
+                insert_data(driver, scraped_data)
 
+                await websocket.send_text("Process completed!")
+                driver.quit()
+
+            except Exception as e:
+                await websocket.send_text(f"Error: {str(e)}")
+                print(f"Error: {str(e)}")
+
+    except Exception as e:
+        await websocket.send_text(f"Error: {str(e)}")
+        print(f"Error: {str(e)}")
+
+
+def login(driver, username, password):
     login_url = 'https://kritik.com.my/wp-login.php?redirect_to=https%3A%2F%2Fkritik.com.my%2Fwp-admin%2Fpost-new.php&reauth=1'
-
     driver.get(login_url)
     time.sleep(1)
 
-    user_input = driver.find_element(By.CSS_SELECTOR, '#user_login')
-    pass_input = driver.find_element(By.CSS_SELECTOR, '#user_pass')
-    login_btn = driver.find_element(By.CSS_SELECTOR, '#wp-submit')
+    driver.find_element(By.CSS_SELECTOR, '#user_login').send_keys(username)
+    driver.find_element(By.CSS_SELECTOR, '#user_pass').send_keys(password)
+    driver.find_element(By.CSS_SELECTOR, '#wp-submit').click()
 
-    # send username and password
-    user_input.send_keys(kritik_user)
-    pass_input.send_keys(kritik_pass)
-
-    login_btn.click()
-
-    pass
 
 def insert_data(driver, data):
-    # assume user already redirected to post new page
     time.sleep(2)
+    driver.find_element(By.CSS_SELECTOR, '#title').send_keys(data.title)
+    time.sleep(0.5)
+    driver.find_element(By.CSS_SELECTOR, '#excerpt').send_keys(data.excerpt)
+    time.sleep(0.5)
 
-    title_input = driver.find_element(By.CSS_SELECTOR, '#title')
-    excerpt_input = driver.find_element(By.CSS_SELECTOR, '#excerpt')
-    content_input = driver.find_element(By.CSS_SELECTOR, '#content')
-    visual_editor_btn = driver.find_element(By.CSS_SELECTOR, '#content-tmce')
+    driver.execute_script("document.querySelector('#content-html').click()")
+    time.sleep(0.5)
+
+    driver.find_element(By.CSS_SELECTOR, '#content').send_keys(data.content)
+    time.sleep(0.5)
+
+    driver.find_element(By.CSS_SELECTOR, '#content-tmce').click()
 
     set_image_btn = driver.find_element(By.CSS_SELECTOR, '#set-post-thumbnail')
 
-    print("Inserting title...")
-    title_input.send_keys(data.title)
-    time.sleep(.5)
-
-    print('Inserting excerpt...')
-    excerpt_input.send_keys(data.excerpt)
-    time.sleep(.5)
-
-
-    time.sleep(.5)
-    driver.execute_script("document.querySelector('#content-html').click()")
-
-    time.sleep(.5)
-    print('Inserting content...')
-    content_input.send_keys(data.content)
-    visual_editor_btn.click()
-
-    # get body
     driver.switch_to.frame(driver.find_element(By.CSS_SELECTOR, 'iframe#content_ifr'))
     content_body = driver.find_element(By.CSS_SELECTOR, '#tinymce.mce-content-body')
 
@@ -113,28 +142,21 @@ def insert_data(driver, data):
 
     driver.switch_to.default_content()
 
-    color_caret_btn = driver.find_element(By.CSS_SELECTOR,
-                                          '.mce-widget.mce-btn.mce-splitbtn.mce-colorbutton > :nth-child(2)')
-    color_caret_btn.click()
+    driver.find_element(By.CSS_SELECTOR,'.mce-widget.mce-btn.mce-splitbtn.mce-colorbutton > :nth-child(2)').click()
 
-    black_color = driver.find_element(By.CSS_SELECTOR, '[data-mce-color="#000000"]')
-
-    black_color.click()
+    driver.find_element(By.CSS_SELECTOR, '[data-mce-color="#000000"]').click()
 
     time.sleep(1)
-    print("Setting tags")
+
     if data.tags is not None:
         tags_input = driver.find_element(By.CSS_SELECTOR, 'input#new-tag-post_tag')
         add_tags_btn = driver.find_element(By.CSS_SELECTOR, 'input.button.tagadd')
 
         tags_input.send_keys(data.get_tags())
-        # add_tags_btn.click()
         driver.execute_script("arguments[0].click()", add_tags_btn)
     else:
         print("No tags found, skipping")
 
-    print('Setting featured image...')
-    # set_image_btn.click()
     driver.execute_script("arguments[0].click()", set_image_btn)
     time.sleep(1)
 
@@ -151,7 +173,7 @@ def insert_data(driver, data):
     )
 
     set_featured_image_btn.click()
-    print('image setted')
+
 
 if __name__ == '__main__':
     main()
