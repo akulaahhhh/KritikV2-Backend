@@ -1,13 +1,15 @@
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
+chrome_options = Options()
+chrome_options.add_argument("--headless")  # Run Chrome without UI
+
+# Use Browserless WebDriver Endpoint (replace YOUR_TOKEN)
+browserless_url = "https://browserless-production-6684.up.railway.app/webdriver?token=0kWaAdmvtQm0zbBL0PHLFIHnKYRJPlJDe07rKOMjprevNqFp"
 
 def chrome_driver():
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")  # Run in headless mode (no UI)
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-
-    # Set up remote WebDriver using Browserless
-    browserless_url = "wss://browserless-production-6684.up.railway.app?token=0kWaAdmvtQm0zbBL0PHLFIHnKYRJPlJDe07rKOMjprevNqFp"  # Replace with actual URL
-    driver = webdriver.Remote(command_executor=browserless_url, options=options)
-
+    driver = webdriver.Remote(
+        command_executor=browserless_url,
+        options=chrome_options
+    )
     return driver
