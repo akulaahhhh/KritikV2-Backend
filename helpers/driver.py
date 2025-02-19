@@ -1,16 +1,18 @@
-from os.path import dirname, abspath, join
-
+import chromedriver_autoinstaller
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.ie.webdriver import WebDriver
-from os.path import join, dirname, abspath
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 
-service = Service(join(dirname(dirname(abspath(__file__))), r"chromedriver-win64\chromedriver.exe"))
+def chrome_driver():
+    # Automatically download and install the appropriate ChromeDriver
+    chromedriver_autoinstaller.install()
 
-def chrome_driver() -> WebDriver:
-    # chromedriver-win64\chromedriver.exe
-    service = Service(join(dirname(dirname(abspath(__file__))) ,"chromedriver-win64\chromedriver.exe"))
-    driver = webdriver.Chrome(service=service)
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")  # Ensure headless mode for server environments
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+
+    service = Service()  # Let Selenium automatically locate ChromeDriver
+    driver = webdriver.Chrome(service=service, options=chrome_options)
 
     return driver
