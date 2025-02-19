@@ -1,6 +1,9 @@
 # Use a base image with a newer version of glibc
 FROM ubuntu:22.04
 
+RUN google-chrome --version
+RUN chromedriver --version
+RUN ls -l /usr/local/bin/chromedriver
 # Install dependencies
 RUN apt-get update && apt-get install -y \
     wget \
